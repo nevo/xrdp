@@ -416,6 +416,7 @@
 #define RDP_ORDER_FONTCACHE     3
 #define RDP_ORDER_RAW_BMPCACHE2 4
 #define RDP_ORDER_BMPCACHE2     5
+#define RDP_ORDER_BMPCACHE3     8
 #define RDP_ORDER_BRUSHCACHE    7
 
 /* drawable types */

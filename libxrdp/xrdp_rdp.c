@@ -20,11 +20,12 @@
 
 */
 
-#include "libxrdp.h"
-
 #if defined(XRDP_FREERDP1)
 #include <freerdp/codec/mppc_enc.h>
+#include <freerdp/codec/rfx.h>
 #endif
+
+#include "libxrdp.h"
 
 /* some compilers need unsigned char to avoid warnings */
 static tui8 g_unknown1[172] =
@@ -143,6 +144,50 @@ xrdp_rdp_read_config(struct xrdp_client_info* client_info)
   return 0;
 }
 
+#if defined(XRDP_FREERDP1)
+static __inline void
+cpuid(unsigned info, unsigned *eax, unsigned *ebx, unsigned *ecx, unsigned *edx)
+{
+#ifdef __GNUC__
+#if defined(__i386__) || defined(__x86_64__)
+  __asm volatile
+  (
+     /* The EBX (or RBX register on x86_64) is used for the PIC base address
+        and must not be corrupted by our inline assembly. */
+#if defined(__i386__)
+     "mov %%ebx, %%esi;"
+     "cpuid;"
+     "xchg %%ebx, %%esi;"
+#else
+     "mov %%rbx, %%rsi;"
+     "cpuid;"
+     "xchg %%rbx, %%rsi;"
+#endif
+     : "=a" (*eax), "=S" (*ebx), "=c" (*ecx), "=d" (*edx)
+     : "0" (info)
+  );
+#endif
+#endif
+}
+
+static uint32
+xrdp_rdp_detect_cpu()
+{
+  unsigned int eax, ebx, ecx, edx = 0;
+  uint32 cpu_opt = 0;
+
+  cpuid(1, &eax, &ebx, &ecx, &edx);
+
+  if (edx & (1<<26))
+  {
+    DEBUG("SSE2 detected");
+    cpu_opt |= CPU_SSE2;
+  }
+
+  return cpu_opt;
+}
+#endif
+
 /*****************************************************************************/
 struct xrdp_rdp* APP_CC
 xrdp_rdp_create(struct xrdp_session* session, struct trans* trans)
@@ -171,6 +216,8 @@ xrdp_rdp_create(struct xrdp_session* session, struct trans* trans)
   g_write_ip_address(trans->sck, self->client_info.client_ip, bytes);
 #if defined(XRDP_FREERDP1)
   self->mppc_enc = mppc_enc_new(PROTO_RDP_50);
+  self->rfx_enc = rfx_context_new();
+  rfx_context_set_cpu_opt(self->rfx_enc, xrdp_rdp_detect_cpu());
 #endif
   self->client_info.size = sizeof(self->client_info);
   DEBUG(("out xrdp_rdp_create"));
@@ -188,6 +235,7 @@ xrdp_rdp_delete(struct xrdp_rdp* self)
   xrdp_sec_delete(self->sec_layer);
 #if defined(XRDP_FREERDP1)
   mppc_enc_free((struct rdp_mppc_enc*)(self->mppc_enc));
+  rfx_context_free((RFX_CONTEXT*)self->rfx_enc);
 #endif
   g_free(self);
 }
@@ -616,11 +664,25 @@ xrdp_rdp_send_demand_active(struct xrdp_rdp* self)
   out_uint8(s, 0); /* unused */
   out_uint8(s, 0); /* unused */
   out_uint16_le(s, 0x6a1);
+  /*
+   * XXX declare support of bitmap cache rev3 (although
+   * not used by client
+   */
+#if 1
+  out_uint16_le(s, 2);
+#else
   out_uint8s(s, 2); /* ? */
+#endif
   out_uint32_le(s, 0x0f4240); /* desk save */
   out_uint32_le(s, 0x0f4240); /* desk save */
   out_uint32_le(s, 1); /* ? */
   out_uint32_le(s, 0); /* ? */
+
+  /* Output bmpcodecs capability set */
+  caps_count++;
+  out_uint16_le(s, RDP_CAPSET_BMPCODECS);
+  out_uint16_le(s, 5);
+  out_uint8(s, 0); /* bitmapCodecCount (freerdp hack) */
 
   /* Output color cache capability set */
   caps_count++;
@@ -706,6 +768,7 @@ xrdp_process_capset_order(struct xrdp_rdp* self, struct stream* s,
 {
   int i;
   char order_caps[32];
+  int exFlags;
 
   DEBUG(("order capabilities"));
   in_uint8s(s, 20); /* Terminal desc, pad */
@@ -736,7 +799,13 @@ xrdp_process_capset_order(struct xrdp_rdp* self, struct stream* s,
   g_hexdump(order_caps, 32);
 #endif
   in_uint8s(s, 2); /* Text capability flags */
-  in_uint8s(s, 6); /* Pad */
+  /* read extended order support flags */
+  in_uint16_le(s, exFlags); /* Ex flags */
+  if (exFlags && 0x2) {
+      DEBUG(("RDP_CAPSET_BMPCACHE3"));
+      self->client_info.bitmap_cache_v3 = 1;
+  }
+  in_uint8s(s, 4); /* Pad */
   in_uint32_le(s, i); /* desktop cache size, usually 0x38400 */
   self->client_info.desktop_cache = i;
   DEBUG(("desktop cache size %d", i));
@@ -808,6 +877,44 @@ xrdp_process_capset_bmpcache2(struct xrdp_rdp* self, struct stream* s,
   DEBUG(("cache3 entries %d size %d", self->client_info.cache3_entries,
          self->client_info.cache3_size));
   return 0;
+}
+
+/*****************************************************************************/
+static int APP_CC
+xrdp_process_capset_bmpcodecs(struct xrdp_rdp* self, struct stream* s, int len)
+{
+/* CODEC_GUID_REMOTEFX 0x76772F12BD724463AFB3B73C9C6F7886 */
+#define CODEC_GUID_REMOTEFX "\x12\x2F\x77\x76\x72\xBD\x63\x44\xAF\xB3\xB7\x3C\x9C\x6F\x78\x86"
+
+/* CODEC_GUID_NSCODEC  0xCA8D1BB9000F154F589FAE2D1A87E2D6 */
+#define CODEC_GUID_NSCODEC "\xb9\x1b\x8d\xca\x0f\x00\x4f\x15\x58\x9f\xae\x2d\x1a\x87\xe2\xd6"
+
+
+    int i;
+    int codecCount = 0;
+    unsigned char guid[16] = { 0 };
+
+    in_uint8(s, codecCount);
+#if defined(XRDP_DEBUG)
+    g_writeln("xrdp_rdp_process_capset_bmpcodecs: client supports %d of codecs",
+              codecCount);
+#endif
+    while (codecCount-- > 0) {
+      in_uint8a(s, guid, 16);
+      in_uint8(s, i); /* codecid - client defined */
+      if (strncmp((char *)guid, CODEC_GUID_REMOTEFX, 16) == 0) {
+        self->client_info.rfx = 1;
+        self->client_info.rfx_codecId = i;
+#if defined(XRDP_DEBUG)
+        g_writeln("xrdp_rdp_process_capset_bmpcodecs: enable rfx codec");
+#endif
+      } else {
+        DEBUG(("Warnings: Unsupported bitmap codec %x", (unsigned int)i));
+      }
+      in_uint16_le(s, i); /* codecProps len */
+      in_uint8s(s, i); /* codecProps */
+    }
+    return 0;
 }
 
 /*****************************************************************************/
@@ -1005,6 +1112,10 @@ xrdp_rdp_process_confirm_active(struct xrdp_rdp* self, struct stream* s)
         break;
       case 26: /* 26 */
         DEBUG(("--26"));
+        break;
+      case RDP_CAPSET_BMPCODECS: /* 0x1d */
+        DEBUG(("RDP_CAPSET_BMPCODECS"));
+        xrdp_process_capset_bmpcodecs(self, s, len);
         break;
       default:
         g_writeln("unknown in xrdp_rdp_process_confirm_active %d", type);

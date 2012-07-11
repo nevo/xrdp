@@ -44,6 +44,10 @@ xrdp_cache_create(struct xrdp_wm* owner,
   self->bitmap_cache_version = client_info->bitmap_cache_version;
   self->pointer_cache_entries = client_info->pointer_cache_entries;
   self->xrdp_os_del_list = list_create();
+
+  self->bitmap_cache_v3 = client_info->bitmap_cache_v3;
+  self->use_rfx_codec = client_info->rfx;
+  self->rfx_codec = client_info->rfx_codecId;
   return self;
 }
 
@@ -261,7 +265,14 @@ xrdp_cache_add_bitmap(struct xrdp_cache* self, struct xrdp_bitmap* bitmap,
   xrdp_bitmap_delete(self->bitmap_items[cache_id][cache_idx].bitmap);
   self->bitmap_items[cache_id][cache_idx].bitmap = bitmap;
   self->bitmap_items[cache_id][cache_idx].stamp = self->bitmap_stamp;
-  if (self->bitmap_cache_version == 0) /* orginal version */
+  /* bitmap cache v3 with rfx encoding */
+  if (self->bitmap_cache_v3 && self->use_rfx_codec) {
+    libxrdp_orders_send_bitmap3(self->session, bitmap->width,
+                                bitmap->height, bitmap->bpp,
+                                bitmap->data, cache_id, cache_idx,
+                                hints);
+  }
+  else if (self->bitmap_cache_version == 0) /* orginal version */
   {
     if (self->use_bitmap_comp)
     {

@@ -203,6 +203,10 @@ struct xrdp_cache
   int cache3_size;
   int bitmap_cache_persist_enable;
   int bitmap_cache_version;
+  /* rfx support */
+  int bitmap_cache_v3;
+  int use_rfx_codec;
+  int rfx_codec;
   /* font */
   int char_stamp;
   struct xrdp_char_item char_items[12][256];

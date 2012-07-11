@@ -20,6 +20,10 @@
 
 */
 
+#if defined(XRDP_FREERDP1)
+#include <freerdp/codec/rfx.h>
+#endif
+
 #include "libxrdp.h"
 
 /*****************************************************************************/
@@ -1937,6 +1941,159 @@ height(%d)", lines_sending, height);
   i = cache_idx & 0xff;
   out_uint8(self->out_s, i);
   out_uint8a(self->out_s, s->data, bufsize);
+  free_stream(s);
+  free_stream(temp_s);
+  return 0;
+}
+
+#if defined(XRDP_FREERDP1)
+/*****************************************************************************/
+/*  secondary drawing order (bitmap v3) using remotefx compression */
+
+static int
+xrdp_orders_send_in_rfx(struct xrdp_orders* self,
+                         int width, int height, int bpp, int hints)
+{
+  if (bpp != 24)
+  {
+    return 0;
+  }
+  if (self->rdp_layer->client_info.rfx == 0)
+  {
+    return 0;
+  }
+  return 1;
+}
+#endif
+
+int APP_CC
+xrdp_orders_send_bitmap3(struct xrdp_orders* self,
+                         int width, int height, int bpp, char* data,
+                         int cache_id, int cache_idx, int hints)
+{
+  int order_flags = 0;
+  int len = 0;
+  int bufsize = 0;
+  int Bpp = 0;
+  int i = 0;
+  char* p = NULL;
+  struct stream* s = NULL;
+  struct stream* temp_s = NULL;
+  int send_rfx = 0;
+  int lines_sending = 0;
+  int e = 0;
+
+  if (width > 64)
+  {
+    g_writeln("error, width > 64");
+    return 1;
+  }
+  if (height > 64)
+  {
+    g_writeln("error, height > 64");
+    return 1;
+  }
+
+  e = width % 4;
+  if (e != 0)
+  {
+    e = 4 - e;
+  }
+
+  make_stream(s);
+  init_stream(s, 16384);
+  make_stream(temp_s);
+  init_stream(temp_s, 16384);
+
+  p = s->p;
+
+#if defined(XRDP_FREERDP1)
+  if (xrdp_orders_send_in_rfx(self, width, height, bpp, hints))
+  {
+    int i;
+    int j;
+    uint32* src32;
+    uint8* dst;
+    uint8* pixels;
+    uint32 pixel;
+    int red;
+    int blue;
+    int green;
+    RFX_CONTEXT *context = (RFX_CONTEXT*)self->rdp_layer->rfx_enc;
+
+    /* XRGB -> RGB */
+    src32 = (uint32*)data;
+    pixels = dst = g_malloc(width * height * 3, 0);
+    for (i = 0; i < height; i++)
+    {
+      for (j = 0; j < width; j++)
+      {
+          pixel = src32[j + i * width];
+          SPLITCOLOR32(red, green, blue, pixel);
+          *(dst++) = blue;
+          *(dst++) = green;
+          *(dst++) = red;
+      }
+    }
+
+    rfx_context_set_pixel_format(context, RDP_PIXEL_FORMAT_B8G8R8);
+    bufsize = rfx_enc_tile(context, p, s->size, pixels, width, height,
+                           width * 3);
+    g_free(pixels);
+    DEBUG(("%s: encoding (rfx) %d bytes for bitmap w %d h %d bpp %d",
+           __func__, bufsize, width, height, bpp));
+    send_rfx = 1;
+  }
+  else
+#endif
+  {
+    DEBUG(("%s: encoding (default) bitmap w %d h %d bpp %d",
+           __func__, width, height, bpp));
+
+    i = height;
+    lines_sending = xrdp_bitmap_compress(data, width, height, s, bpp, 16384,
+                                         i - 1, temp_s, e);
+    if (lines_sending != height)
+    {
+      free_stream(s);
+      free_stream(temp_s);
+      g_writeln("error in xrdp_orders_send_bitmap3, lines_sending(%d) != \
+height(%d)", lines_sending, height);
+      return 1;
+    }
+    bufsize = (int)(s->p - p);
+  }
+
+  Bpp = (bpp + 7) / 8;
+  xrdp_orders_check(self, bufsize + 28);
+  self->order_count++;
+  order_flags = RDP_ORDER_STANDARD | RDP_ORDER_SECONDARY;
+  out_uint8(self->out_s, order_flags);
+  len = (bufsize + 22) - 7; /* length after type minus 7 */
+  out_uint16_le(self->out_s, len);
+  i = (((Bpp + 2) << 3) & 0x38) | (cache_id & 7);
+  i = i | (0x08 << 7); /* CBR3_IGNORABLE_FLAG */
+  out_uint16_le(self->out_s, i); /* flags */
+  out_uint8(self->out_s, RDP_ORDER_BMPCACHE3); /* type */
+
+  /* cache index */
+  out_uint16_le(self->out_s, cache_idx);
+
+  /* persistant cache key 1/2*/
+  out_uint32_le(self->out_s, 0);
+  out_uint32_le(self->out_s, 0);
+
+  /* bitmap data */
+  out_uint8(self->out_s, bpp);
+  out_uint8(self->out_s, 0); /* reserved */
+  out_uint8(self->out_s, 0); /* reserved */
+  /* set codecId to 0 if data is not encoded in rfx */
+  out_uint8(self->out_s, send_rfx ? self->rdp_layer->client_info.rfx_codecId : 0);
+  out_uint16_le(self->out_s, send_rfx ? width : width + e);
+  out_uint16_le(self->out_s, height);
+  out_uint32_le(self->out_s, bufsize);
+  out_uint8a(self->out_s, p, bufsize);
+
   free_stream(s);
   free_stream(temp_s);
   return 0;
