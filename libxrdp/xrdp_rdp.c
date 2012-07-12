@@ -801,7 +801,7 @@ xrdp_process_capset_order(struct xrdp_rdp* self, struct stream* s,
   in_uint8s(s, 2); /* Text capability flags */
   /* read extended order support flags */
   in_uint16_le(s, exFlags); /* Ex flags */
-  if (exFlags && 0x2) {
+  if (exFlags & 0x2) {
       DEBUG(("RDP_CAPSET_BMPCACHE3"));
       self->client_info.bitmap_cache_v3 = 1;
   }
