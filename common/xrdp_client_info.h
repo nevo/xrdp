@@ -46,11 +46,6 @@ struct xrdp_client_info
   /* other */
   int use_bitmap_comp;
   int use_bitmap_cache;
-
-  /* bmp cache v3 / remotefx codec */
-  int bitmap_cache_v3;
-  int rfx_codecId;
-
   int op1; /* use smaller bitmap header, non cache */
   int op2; /* use smaller bitmap header in bitmap cache */
   int desktop_cache;
@@ -85,6 +80,10 @@ struct xrdp_client_info
   int wnd_support_level;
   int wnd_num_icon_caches;
   int wnd_num_icon_cache_entries;
+
+  /* bmp cache v3 / remotefx codec */
+  int bitmap_cache_v3;
+  int rfx_codecId;
 };
 
 #endif
