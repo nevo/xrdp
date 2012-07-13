@@ -12,6 +12,7 @@ lib_LTLIBRARIES = \
   libcommon.la
 
 libcommon_la_SOURCES = \
+  bwmonitor.c \
   d3des.c \
   file.c \
   list.c \
