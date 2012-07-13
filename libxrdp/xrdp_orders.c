@@ -1979,8 +1979,8 @@ xrdp_orders_send_bitmap3(struct xrdp_orders* self,
   char* p = NULL;
   struct stream* s = NULL;
   struct stream* temp_s = NULL;
-  int lines_sending = 0;
   int send_rfx = 0;
+  int lines_sending = 0;
   int e = 0;
 
   if (width > 64)
@@ -2042,6 +2042,7 @@ xrdp_orders_send_bitmap3(struct xrdp_orders* self,
     g_free(pixels);
     DEBUG(("%s: encoding (rfx) %d bytes for bitmap w %d h %d bpp %d",
            __func__, bufsize, width, height, bpp));
+    send_rfx = 1;
   }
   else if (xrdp_orders_send_as_jpeg(self, width, height, bpp, hints))
   {
