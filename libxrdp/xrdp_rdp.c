@@ -180,7 +180,7 @@ xrdp_rdp_detect_cpu()
 
   if (edx & (1<<26))
   {
-    DEBUG("SSE2 detected");
+    DEBUG(("SSE2 detected"));
     cpu_opt |= CPU_SSE2;
   }
 
@@ -889,6 +889,9 @@ xrdp_process_capset_bmpcodecs(struct xrdp_rdp* self, struct stream* s, int len)
 /* CODEC_GUID_NSCODEC  0xCA8D1BB9000F154F589FAE2D1A87E2D6 */
 #define CODEC_GUID_NSCODEC "\xb9\x1b\x8d\xca\x0f\x00\x4f\x15\x58\x9f\xae\x2d\x1a\x87\xe2\xd6"
 
+/* CODEC_GUID_JPEG 0x430C9EED1BAF4CE6869ACB8B37B66237*/
+#define CODEC_GUID_JPEG "\xE6\x4C\xAF\x1B\xED\x9E\x0C\x43\x86\x9A\xCB\x8B\x37\xB6\x62\x37"
+
 
     int i;
     int codecCount = 0;
@@ -904,9 +907,15 @@ xrdp_process_capset_bmpcodecs(struct xrdp_rdp* self, struct stream* s, int len)
       in_uint8(s, i); /* codecid - client defined */
       if (strncmp((char *)guid, CODEC_GUID_REMOTEFX, 16) == 0) {
         self->client_info.rfx = 1;
-        self->client_info.rfx_codecId = i;
+        self->client_info.codec_id = i;
 #if defined(XRDP_DEBUG)
         g_writeln("xrdp_rdp_process_capset_bmpcodecs: enable rfx codec");
+#endif
+      } else if (strncmp((char *)guid, CODEC_GUID_JPEG, 16) == 0) {
+        self->client_info.jpeg = 1;
+        self->client_info.codec_id = i;
+#if defined(XRDP_DEBUG)
+        g_writeln("xrdp_rdp_process_capset_bmpcodecs: enable jpeg codec");
 #endif
       } else {
         DEBUG(("Warnings: Unsupported bitmap codec %x", (unsigned int)i));

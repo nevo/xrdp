@@ -69,7 +69,7 @@ struct xrdp_client_info
                            2 = arbitrary dimensions */
   char client_ip[256];
   int max_bpp;
-  int jpeg; /* non standard bitmap cache v2 cap */
+  int jpeg;
   int offscreen_support_level;
   int offscreen_cache_size;
   int offscreen_cache_entries;
@@ -83,7 +83,7 @@ struct xrdp_client_info
 
   /* bmp cache v3 / remotefx codec */
   int bitmap_cache_v3;
-  int rfx_codecId;
+  int codec_id;
 };
 
 #endif

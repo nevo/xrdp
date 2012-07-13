@@ -1979,8 +1979,8 @@ xrdp_orders_send_bitmap3(struct xrdp_orders* self,
   char* p = NULL;
   struct stream* s = NULL;
   struct stream* temp_s = NULL;
-  int send_rfx = 0;
   int lines_sending = 0;
+  int send_rfx = 0;
   int e = 0;
 
   if (width > 64)
@@ -2042,7 +2042,11 @@ xrdp_orders_send_bitmap3(struct xrdp_orders* self,
     g_free(pixels);
     DEBUG(("%s: encoding (rfx) %d bytes for bitmap w %d h %d bpp %d",
            __func__, bufsize, width, height, bpp));
-    send_rfx = 1;
+  }
+  else if (xrdp_orders_send_as_jpeg(self, width, height, bpp, hints))
+  {
+    lines_sending = xrdp_jpeg_compress(data, width, height, s, bpp, 16384,
+                                       i - 1, temp_s, e);
   }
   else
 #endif
@@ -2087,8 +2091,7 @@ height(%d)", lines_sending, height);
   out_uint8(self->out_s, bpp);
   out_uint8(self->out_s, 0); /* reserved */
   out_uint8(self->out_s, 0); /* reserved */
-  /* set codecId to 0 if data is not encoded in rfx */
-  out_uint8(self->out_s, send_rfx ? self->rdp_layer->client_info.rfx_codecId : 0);
+  out_uint8(self->out_s, self->rdp_layer->client_info.codec_id);
   out_uint16_le(self->out_s, send_rfx ? width : width + e);
   out_uint16_le(self->out_s, height);
   out_uint32_le(self->out_s, bufsize);

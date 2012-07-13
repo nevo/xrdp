@@ -120,7 +120,7 @@ xrdp_surface_send_surface_bits(struct xrdp_surface* self,int bpp, char* data,
   stream_set_pos(s, 0);
   rfx_compose_message(rfx_context, s, &rect, 1, data, cx, cy, Bpp * cx);
 
-  codecId = self->session->client_info->rfx_codecId;
+  codecId = self->session->client_info->codec_id;
   /* surface_bits_command */
   out_uint16_le(self->out_s, CMDTYPE_STREAM_SURFACE_BITS); /* cmdType */
   out_uint16_le(self->out_s, x);                           /* destLeft */
