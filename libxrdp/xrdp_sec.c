@@ -1210,14 +1210,14 @@ xrdp_sec_recv(struct xrdp_sec *self, struct stream *s, int *chan)
      However, client info packet and license packet always have security header. */
     if (s->data[17] == 0x13) /* confirm active pdu */
     {
-    	g_writeln("CONFIRM ACTIVE ARRIVED");
-    	return 0;
+        g_writeln("CONFIRM ACTIVE ARRIVED");
+        return 0;
     }
 
     if (s->data[17] == 0x17 || s->data[16] == 0x17) /* rdp data pdu */
     {
-    	g_writeln("RDP DATA ARRIVED");
-    	return 0;
+        g_writeln("RDP DATA ARRIVED");
+        return 0;
     }
 
     in_uint32_le(s, flags);
@@ -1281,7 +1281,7 @@ xrdp_sec_recv(struct xrdp_sec *self, struct stream *s, int *chan)
         {
             xrdp_sec_fips_establish_keys(self);
         }
-        else
+        else if (self->crypt_method != CRYPT_METHOD_NONE)
         {
             xrdp_sec_establish_keys(self);
         }
@@ -1779,9 +1779,22 @@ xrdp_sec_process_mcs_data_CS_SECURITY(struct xrdp_sec *self, struct stream* s)
             found = 1;
         }
     }
+    if ((found == 0) &&
+        (self->crypt_level == CRYPT_LEVEL_NONE))
+    {
+        if (crypt_method == CRYPT_METHOD_NONE)
+        {
+            g_writeln("  client and server support none crypt, using "
+                      "none crypt");
+            self->crypt_method = CRYPT_METHOD_NONE;
+            self->crypt_level = CRYPT_LEVEL_NONE;
+            found = 1;
+        }
+    }
     if (found == 0)
     {
-        g_writeln("  no security");
+        g_writeln("  can not find client / server agreed encryption method");
+        return 1;
     }
     return 0;
 }
@@ -2069,6 +2082,10 @@ xrdp_sec_init_rdp_security(struct xrdp_sec *self)
 {
     switch (self->rdp_layer->client_info.crypt_level)
     {
+        case 0: /* none */
+            self->crypt_method = CRYPT_METHOD_NONE;
+            self->crypt_level = CRYPT_LEVEL_NONE;
+            break;
         case 1: /* low */
             self->crypt_method = CRYPT_METHOD_40BIT;
             self->crypt_level = CRYPT_LEVEL_LOW;
@@ -2096,7 +2113,7 @@ xrdp_sec_init_rdp_security(struct xrdp_sec *self)
     }
     else
     {
-    	self->decrypt_rc4_info = ssl_rc4_info_create();
+        self->decrypt_rc4_info = ssl_rc4_info_create();
     }
 
     if (self->encrypt_rc4_info != NULL)
@@ -2105,11 +2122,12 @@ xrdp_sec_init_rdp_security(struct xrdp_sec *self)
     }
     else
     {
-    	self->encrypt_rc4_info = ssl_rc4_info_create();
+        self->encrypt_rc4_info = ssl_rc4_info_create();
    	}
 
-	return 0;
+    return 0;
 }
+
 /*****************************************************************************/
 int APP_CC
 xrdp_sec_incoming(struct xrdp_sec *self)
@@ -2153,61 +2171,62 @@ xrdp_sec_incoming(struct xrdp_sec *self)
     }
     else
     {
-    	/* init rdp security */
+        /* init rdp security */
         DEBUG((" in xrdp_sec_incoming: init rdp security"));
         if (xrdp_sec_init_rdp_security(self) != 0)
         {
             DEBUG(("xrdp_sec_incoming: xrdp_sec_init_rdp_security failed"));
-        	return 1;
-        }
-
-        g_memset(key_file, 0, sizeof(char) * 256);
-        g_random(self->server_random, 32);
-        items = list_create();
-        items->auto_free = 1;
-        values = list_create();
-        values->auto_free = 1;
-        g_snprintf(key_file, 255, "%s/rsakeys.ini", XRDP_CFG_PATH);
-
-        if (file_by_name_read_section(key_file, "keys", items, values) != 0)
-        {
-            /* this is a show stopper */
-            log_message(LOG_LEVEL_ALWAYS, "XRDP cannot read file: %s "
-                        "(check permissions)", key_file);
-            list_delete(items);
-            list_delete(values);
             return 1;
         }
-
-        for (index = 0; index < items->count; index++)
+        if (self->crypt_method != CRYPT_METHOD_NONE)
         {
-            item = (char *)list_get_item(items, index);
-            value = (char *)list_get_item(values, index);
+            g_memset(key_file, 0, sizeof(char) * 256);
+            g_random(self->server_random, 32);
+            items = list_create();
+            items->auto_free = 1;
+            values = list_create();
+            values->auto_free = 1;
+            g_snprintf(key_file, 255, "%s/rsakeys.ini", XRDP_CFG_PATH);
 
-            if (g_strcasecmp(item, "pub_exp") == 0)
+            if (file_by_name_read_section(key_file, "keys", items, values) != 0)
             {
-                hex_str_to_bin(value, self->pub_exp, 4);
+                /* this is a show stopper */
+                log_message(LOG_LEVEL_ALWAYS, "XRDP cannot read file: %s "
+                            "(check permissions)", key_file);
+                list_delete(items);
+                list_delete(values);
+                return 1;
             }
-            else if (g_strcasecmp(item, "pub_mod") == 0)
+
+            for (index = 0; index < items->count; index++)
             {
-                self->rsa_key_bytes = (g_strlen(value) + 1) / 5;
-                g_writeln("pub_mod bytes %d", self->rsa_key_bytes);
-                hex_str_to_bin(value, self->pub_mod, self->rsa_key_bytes);
+                item = (char *)list_get_item(items, index);
+                value = (char *)list_get_item(values, index);
+
+                if (g_strcasecmp(item, "pub_exp") == 0)
+                {
+                    hex_str_to_bin(value, self->pub_exp, 4);
+                }
+                else if (g_strcasecmp(item, "pub_mod") == 0)
+                {
+                    self->rsa_key_bytes = (g_strlen(value) + 1) / 5;
+                    g_writeln("pub_mod bytes %d", self->rsa_key_bytes);
+                    hex_str_to_bin(value, self->pub_mod, self->rsa_key_bytes);
+                }
+                else if (g_strcasecmp(item, "pub_sig") == 0)
+                {
+                    hex_str_to_bin(value, self->pub_sig, 64);
+                }
+                else if (g_strcasecmp(item, "pri_exp") == 0)
+                {
+                    self->rsa_key_bytes = (g_strlen(value) + 1) / 5;
+                    g_writeln("pri_exp %d", self->rsa_key_bytes);
+                    hex_str_to_bin(value, self->pri_exp, self->rsa_key_bytes);
+                }
             }
-            else if (g_strcasecmp(item, "pub_sig") == 0)
-            {
-                hex_str_to_bin(value, self->pub_sig, 64);
-            }
-            else if (g_strcasecmp(item, "pri_exp") == 0)
-            {
-                self->rsa_key_bytes = (g_strlen(value) + 1) / 5;
-                g_writeln("pri_exp %d", self->rsa_key_bytes);
-                hex_str_to_bin(value, self->pri_exp, self->rsa_key_bytes);
-            }
+            list_delete(items);
+            list_delete(values);
         }
-
-        list_delete(items);
-        list_delete(values);
     }
 
     /* negotiate mcs layer */
