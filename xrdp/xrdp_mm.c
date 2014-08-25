@@ -129,9 +129,6 @@ xrdp_mm_module_cleanup(struct xrdp_mm *self)
 {
     log_message(LOG_LEVEL_DEBUG, "xrdp_mm_module_cleanup");
 
-    /* shutdown thread */
-    deinit_xrdp_encoder(self);
-
     if (self->mod != 0)
     {
         if (self->mod_exit != 0)
@@ -175,6 +172,10 @@ xrdp_mm_delete(struct xrdp_mm *self)
 
     /* free any module stuff */
     xrdp_mm_module_cleanup(self);
+
+    /* shutdown thread */
+    deinit_xrdp_encoder(self);
+
     trans_delete(self->sesman_trans);
     self->sesman_trans = 0;
     self->sesman_trans_up = 0;
@@ -549,7 +550,7 @@ xrdp_mm_setup_mod2(struct xrdp_mm *self)
 
                 if (use_uds)
                 {
-                    g_snprintf(text, 255, "/tmp/.xrdp/xrdp_display_%d", self->display);
+                    g_snprintf(text, 255, XRDP_X11RDP_STR, self->display);
                 }
                 else
                 {
@@ -1233,7 +1234,7 @@ xrdp_mm_process_login_response(struct xrdp_mm *self, struct stream *s)
                 /* connect channel redir */
                 if ((g_strcmp(ip, "127.0.0.1") == 0) || (ip[0] == 0))
                 {
-                    g_snprintf(port, 255, "/tmp/.xrdp/xrdp_chansrv_socket_%d", 7200 + display);
+                    g_snprintf(port, 255, XRDP_CHANSRV_STR, display);
                 }
                 else
                 {

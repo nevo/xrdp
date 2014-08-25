@@ -27,6 +27,7 @@
 #include "thread_calls.h"
 #include "defines.h"
 #include "fifo.h"
+#include "file_loc.h"
 
 extern int g_rdpsnd_chan_id;    /* in chansrv.c */
 extern int g_display_num;       /* in chansrv.c */
@@ -51,9 +52,6 @@ char g_buffer[BBUF_SIZE];
 int g_buf_index = 0;
 int g_sent_time[256];
 int g_sent_flag[256];
-
-#define CHANSRV_PORT_OUT_STR  "/tmp/.xrdp/xrdp_chansrv_audio_out_socket_%d"
-#define CHANSRV_PORT_IN_STR   "/tmp/.xrdp/xrdp_chansrv_audio_in_socket_%d"
 
 struct xr_wave_format_ex
 {
@@ -382,7 +380,7 @@ sound_send_wave_data_chunk(char *data, int data_bytes)
     if (g_sent_flag[(g_cBlockNo + 1) & 0xff] & 1)
     {
         LOG(10, ("sound_send_wave_data_chunk: no room"));
-        return 1;
+        return 2;
     }
     else
     {
@@ -442,6 +440,7 @@ sound_send_wave_data(char *data, int data_bytes)
     int chunk_bytes;
     int data_index;
     int error;
+    int res;
 
     LOG(10, ("sound_send_wave_data: sending %d bytes", data_bytes));
     data_index = 0;
@@ -460,13 +459,20 @@ sound_send_wave_data(char *data, int data_bytes)
         g_buf_index += chunk_bytes;
         if (g_buf_index >= BBUF_SIZE)
         {
-            if (sound_send_wave_data_chunk(g_buffer, BBUF_SIZE) != 0)
+            g_buf_index = 0;
+            res = sound_send_wave_data_chunk(g_buffer, BBUF_SIZE);
+            if (res == 2)
+            {
+                /* don't need to error on this */
+                LOG(0, ("sound_send_wave_data: dropped, no room"));
+                break;
+            }
+            else if (res != 0)
             {
                 LOG(10, ("sound_send_wave_data: error"));
                 error = 1;
                 break;
             }
-            g_buf_index = 0;
         }
         data_bytes -= chunk_bytes;
         data_index += chunk_bytes;
